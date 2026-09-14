@@ -144,19 +144,42 @@
     <script>
         const tg = window.Telegram?.WebApp;
 
-        if (tg) {
+        async function setupTelegram() {
+            if (!tg) {
+                return;
+            }
+
             tg.ready();
             tg.expand();
 
             tg.disableVerticalSwipes?.();
-            tg.lockOrientation?.();
-
-            tg.requestFullscreen?.();
 
             tg.setHeaderColor?.('#000000');
             tg.setBackgroundColor?.('#000000');
             tg.setBottomBarColor?.('#000000');
+
+            try {
+                tg.requestFullscreen?.();
+            } catch (error) {
+                console.log('Telegram fullscreen unavailable:', error);
+            }
+
+            try {
+                if (screen.orientation?.lock) {
+                    await screen.orientation.lock('landscape');
+                }
+            } catch (error) {
+                console.log('Landscape lock unavailable:', error);
+            }
+
+            try {
+                tg.lockOrientation?.();
+            } catch (error) {
+                console.log('Telegram orientation lock unavailable:', error);
+            }
         }
+
+        setupTelegram();
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
