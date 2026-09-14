@@ -144,7 +144,7 @@
     <script>
         const tg = window.Telegram?.WebApp;
 
-        async function setupTelegram() {
+        function setupTelegram() {
             if (!tg) {
                 return;
             }
@@ -158,25 +158,7 @@
             tg.setBackgroundColor?.('#000000');
             tg.setBottomBarColor?.('#000000');
 
-            try {
-                tg.requestFullscreen?.();
-            } catch (error) {
-                console.log('Telegram fullscreen unavailable:', error);
-            }
-
-            try {
-                if (screen.orientation?.lock) {
-                    await screen.orientation.lock('landscape');
-                }
-            } catch (error) {
-                console.log('Landscape lock unavailable:', error);
-            }
-
-            try {
-                tg.lockOrientation?.();
-            } catch (error) {
-                console.log('Telegram orientation lock unavailable:', error);
-            }
+            tg.requestFullscreen?.();
         }
 
         setupTelegram();
