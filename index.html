@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Pixeltest</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {
             margin: 0;
@@ -141,6 +142,22 @@
     </div>
 
     <script>
+        const tg = window.Telegram?.WebApp;
+
+        if (tg) {
+            tg.ready();
+            tg.expand();
+
+            tg.disableVerticalSwipes?.();
+            tg.lockOrientation?.();
+
+            tg.requestFullscreen?.();
+
+            tg.setHeaderColor?.('#000000');
+            tg.setBackgroundColor?.('#000000');
+            tg.setBottomBarColor?.('#000000');
+        }
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
