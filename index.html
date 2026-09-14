@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixeltest</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #rotateMessage {
+            display: none;
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: #fff;
+            font-size: 32px;
+            font-weight: bold;
+            letter-spacing: 4px;
+        }
+
+        #gameContainer {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background: #000;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            display: grid;
+            grid-template-columns: repeat(3, 70px);
+            grid-template-rows: repeat(2, 70px);
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .btn {
+            width: 70px;
+            height: 70px;
+            background: transparent;
+            border: 3px solid #fff;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 32px;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .btn:active,
+        .btn.active {
+            background: #fff;
+            color: #000;
+        }
+
+        .btn-up {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .btn-left {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .btn-down {
+            grid-column: 2;
+            grid-row: 2;
+        }
+
+        .btn-right {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        @media screen and (orientation: portrait) {
+            #rotateMessage {
+                display: flex !important;
+            }
+
+            #gameContainer {
+                display: none !important;
+            }
+        }
+
+        @media screen and (orientation: landscape) {
+            #rotateMessage {
+                display: none !important;
+            }
+
+            #gameContainer {
+                display: block !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="rotateMessage">ROTATE DEVICE</div>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="controls">
+            <div class="btn btn-up" data-dir="up">↑</div>
+            <div class="btn btn-left" data-dir="left">←</div>
+            <div class="btn btn-down" data-dir="down">↓</div>
+            <div class="btn btn-right" data-dir="right">→</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        ctx.imageSmoothingEnabled = false;
+
+        const FRAME_W = 21;
+        const FRAME_H = 72;
+
+        const SAFE_OFFSET_X = 1;
+        const SAFE_OFFSET_Y = 1;
+        const SAFE_W = FRAME_W - 2;
+        const SAFE_H = FRAME_H - 2;
+
+        const SCALE = 3;
+        const SPRITE_W = SAFE_W * SCALE;
+        const SPRITE_H = SAFE_H * SCALE;
+        const TILE = 48;
+
+        const player = {
+            x: 0,
+            y: 0,
+            dir: 'down',
+            frame: 1,
+            animStep: 0,
+            isMoving: false,
+            speed: 4
+        };
+
+        const DIRECTIONS = {
+            down: { row: 0, dx: 0, dy: 1 },
+            left: { row: 1, dx: -1, dy: 0 },
+            right: { row: 2, dx: 1, dy: 0 },
+            up: { row: 3, dx: 0, dy: -1 }
+        };
+
+        const sprite = new Image();
+        sprite.src = 'sprites.png';
+
+        let spriteReady = false;
+        let lastAnimTime = 0;
+
+        const FRAME_DURATION = 150;
+        const ANIMATION_SEQUENCE = [0, 1, 2, 1];
+
+        sprite.onload = () => {
+            spriteReady = true;
+        };
+
+        function resize() {
+            canvas.width = Math.floor(window.innerWidth);
+            canvas.height = Math.floor(window.innerHeight);
+
+            player.x = Math.max(
+                0,
+                Math.min(player.x, canvas.width - SPRITE_W)
+            );
+
+            player.y = Math.max(
+                0,
+                Math.min(player.y, canvas.height - SPRITE_H)
+            );
+        }
+
+        function drawFloor() {
+            const columns = Math.ceil(canvas.width / TILE) + 1;
+            const rows = Math.ceil(canvas.height / TILE) + 1;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < columns; x++) {
+                    ctx.fillStyle =
+                        (x + y) % 2 === 0 ? '#3a3a3a' : '#5a5a5a';
+
+                    ctx.fillRect(
+                        x * TILE,
+                        y * TILE,
+                        TILE,
+                        TILE
+                    );
+                }
+            }
+        }
+
+        function drawPlayer() {
+            const direction = DIRECTIONS[player.dir];
+
+            if (!spriteReady) {
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(
+                    player.x,
+                    player.y,
+                    SPRITE_W,
+                    SPRITE_H
+                );
+                return;
+            }
+
+            ctx.drawImage(
+                sprite,
+                player.frame * FRAME_W + SAFE_OFFSET_X,
+                direction.row * FRAME_H + SAFE_OFFSET_Y,
+                SAFE_W,
+                SAFE_H,
+                Math.floor(player.x),
+                Math.floor(player.y),
+                SPRITE_W,
+                SPRITE_H
+            );
+        }
+
+        function updateAnimation(timestamp) {
+            if (!player.isMoving) {
+                player.frame = 1;
+                player.animStep = 0;
+                lastAnimTime = 0;
+                return;
+            }
+
+            if (timestamp - lastAnimTime >= FRAME_DURATION) {
+                lastAnimTime = timestamp;
+                player.animStep =
+                    (player.animStep + 1) % ANIMATION_SEQUENCE.length;
+
+                player.frame = ANIMATION_SEQUENCE[player.animStep];
+            }
+        }
+
+        function update(timestamp) {
+            if (player.isMoving) {
+                const direction = DIRECTIONS[player.dir];
+
+                player.x += direction.dx * player.speed;
+                player.y += direction.dy * player.speed;
+
+                player.x = Math.max(
+                    0,
+                    Math.min(player.x, canvas.width - SPRITE_W)
+                );
+
+                player.y = Math.max(
+                    0,
+                    Math.min(player.y, canvas.height - SPRITE_H)
+                );
+            }
+
+            updateAnimation(timestamp);
+        }
+
+        function gameLoop(timestamp) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawFloor();
+            drawPlayer();
+            update(timestamp);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function handleInput(direction, pressed) {
+            if (pressed) {
+                player.dir = direction;
+                player.isMoving = true;
+                player.animStep = 0;
+                player.frame = 0;
+                lastAnimTime = performance.now();
+            } else {
+                player.isMoving = false;
+            }
+        }
+
+        function setupTouchControls() {
+            document.querySelectorAll('.btn').forEach(button => {
+                const direction = button.dataset.dir;
+
+                button.addEventListener(
+                    'touchstart',
+                    event => {
+                        event.preventDefault();
+                        button.classList.add('active');
+                        handleInput(direction, true);
+                    },
+                    { passive: false }
+                );
+
+                button.addEventListener(
+                    'touchend',
+                    event => {
+                        event.preventDefault();
+                        button.classList.remove('active');
+                        handleInput(direction, false);
+                    },
+                    { passive: false }
+                );
+
+                button.addEventListener('touchcancel', () => {
+                    button.classList.remove('active');
+                    handleInput(direction, false);
+                });
+
+                button.addEventListener('mousedown', () => {
+                    button.classList.add('active');
+                    handleInput(direction, true);
+                });
+
+                button.addEventListener('mouseup', () => {
+                    button.classList.remove('active');
+                    handleInput(direction, false);
+                });
+
+                button.addEventListener('mouseleave', () => {
+                    button.classList.remove('active');
+                    handleInput(direction, false);
+                });
+            });
+        }
+
+        function setupKeyboardControls() {
+            const keys = {};
+
+            window.addEventListener('keydown', event => {
+                if (keys[event.key]) {
+                    return;
+                }
+
+                keys[event.key] = true;
+
+                if (event.key === 'ArrowUp' || event.key === 'w') {
+                    handleInput('up', true);
+                }
+
+                if (event.key === 'ArrowDown' || event.key === 's') {
+                    handleInput('down', true);
+                }
+
+                if (event.key === 'ArrowLeft' || event.key === 'a') {
+                    handleInput('left', true);
+                }
+
+                if (event.key === 'ArrowRight' || event.key === 'd') {
+                    handleInput('right', true);
+                }
+            });
+
+            window.addEventListener('keyup', event => {
+                keys[event.key] = false;
+
+                if (
+                    (event.key === 'ArrowUp' || event.key === 'w') &&
+                    !keys.ArrowUp &&
+                    !keys.w
+                ) {
+                    handleInput('up', false);
+                }
+
+                if (
+                    (event.key === 'ArrowDown' || event.key === 's') &&
+                    !keys.ArrowDown &&
+                    !keys.s
+                ) {
+                    handleInput('down', false);
+                }
+
+                if (
+                    (event.key === 'ArrowLeft' || event.key === 'a') &&
+                    !keys.ArrowLeft &&
+                    !keys.a
+                ) {
+                    handleInput('left', false);
+                }
+
+                if (
+                    (event.key === 'ArrowRight' || event.key === 'd') &&
+                    !keys.ArrowRight &&
+                    !keys.d
+                ) {
+                    handleInput('right', false);
+                }
+            });
+        }
+
+        window.addEventListener('resize', resize);
+
+        resize();
+
+        player.x = Math.floor(
+            (canvas.width - SPRITE_W) / 2
+        );
+
+        player.y = Math.floor(
+            (canvas.height - SPRITE_H) / 2
+        );
+
+        setupTouchControls();
+        setupKeyboardControls();
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
