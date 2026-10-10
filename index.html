@@ -106,6 +106,54 @@
             grid-row: 2;
         }
 
+        #welcomeOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.6);
+        }
+
+        #welcomeOverlay[hidden] {
+            display: none;
+        }
+
+        #welcomeDialog {
+            width: min(80vw, 380px);
+            padding: 24px 20px;
+            background: #000;
+            border: 4px solid #fff;
+            box-shadow: 0 0 0 4px #000, 0 0 0 8px #fff;
+            color: #fff;
+            font-family: "Courier New", Courier, monospace;
+            text-align: center;
+        }
+
+        #welcomeText {
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            margin-bottom: 24px;
+        }
+
+        #welcomeOk {
+            min-width: 180px;
+            min-height: 56px;
+            padding: 8px 20px;
+            background: #000;
+            border: 4px solid #fff;
+            color: #fff;
+            font-size: 28px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        #welcomeOk:active {
+            background: #fff;
+        }
+
         @media screen and (orientation: portrait) {
             #rotateMessage {
                 display: flex !important;
@@ -132,6 +180,13 @@
 
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
+
+        <div id="welcomeOverlay">
+            <div id="welcomeDialog" role="dialog" aria-modal="true" aria-labelledby="welcomeText">
+                <p id="welcomeText">tavalodeee</p>
+                <button id="welcomeOk" type="button" aria-label="OK">🥳🤩🥳🥳</button>
+            </div>
+        </div>
 
         <div id="controls">
             <div class="btn btn-up" data-dir="up">↑</div>
@@ -161,7 +216,11 @@
             tg.requestFullscreen?.();
         }
 
-        setupTelegram();
+        try {
+            setupTelegram();
+        } catch (error) {
+            // Telegram API errors must never stop the game.
+        }
 
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -322,6 +381,10 @@
         }
 
         function handleInput(direction, pressed) {
+            if (pressed && !welcomeDismissed) {
+                return;
+            }
+
             if (pressed) {
                 player.dir = direction;
                 player.isMoving = true;
@@ -443,6 +506,60 @@
             });
         }
 
+        let welcomeDismissed = false;
+        let lobbyMusic = null;
+
+        try {
+            lobbyMusic = new Audio('LOBBY-MUSIC.m4a');
+            lobbyMusic.loop = true;
+            lobbyMusic.preload = 'auto';
+        } catch (error) {
+            lobbyMusic = null;
+        }
+
+        function startLobbyMusic() {
+            try {
+                if (!lobbyMusic || !lobbyMusic.paused) {
+                    return;
+                }
+
+                const playPromise = lobbyMusic.play();
+
+                if (playPromise && playPromise.catch) {
+                    playPromise.catch(() => {});
+                }
+            } catch (error) {
+                // Music must never break the game.
+            }
+        }
+
+        function setupWelcomeDialog() {
+            const overlay = document.getElementById('welcomeOverlay');
+            const okButton = document.getElementById('welcomeOk');
+
+            if (!overlay || !okButton) {
+                welcomeDismissed = true;
+                return;
+            }
+
+            function dismissWelcome(event) {
+                if (event) {
+                    event.preventDefault();
+                }
+
+                if (welcomeDismissed) {
+                    return;
+                }
+
+                welcomeDismissed = true;
+                overlay.hidden = true;
+                startLobbyMusic();
+            }
+
+            okButton.addEventListener('touchend', dismissWelcome, { passive: false });
+            okButton.addEventListener('click', dismissWelcome);
+        }
+
         window.addEventListener('resize', resize);
 
         resize();
@@ -455,6 +572,7 @@
             (canvas.height - SPRITE_H) / 2
         );
 
+        setupWelcomeDialog();
         setupTouchControls();
         setupKeyboardControls();
 
