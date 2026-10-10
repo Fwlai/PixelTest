@@ -227,6 +227,16 @@
 
         ctx.imageSmoothingEnabled = false;
 
+        const SERVER_URL = 'wss://pixeltest-server.onrender.com';
+        const DEFAULT_SPRITE_FILE = 'sprites.png';
+
+        // The room is a fixed-size world that is scaled to fit every screen,
+        // so all players share the same coordinates.
+        const WORLD_W = 640;
+        const WORLD_H = 320;
+
+        const ROOM_IMAGE_FILE = 'room.png';
+
         const FRAME_W = 21;
         const FRAME_H = 72;
 
@@ -235,10 +245,44 @@
         const SAFE_W = FRAME_W - 2;
         const SAFE_H = FRAME_H - 2;
 
-        const SCALE = 3;
+        const SCALE = 1;
         const SPRITE_W = SAFE_W * SCALE;
         const SPRITE_H = SAFE_H * SCALE;
-        const TILE = 48;
+
+        // Movement speed in world pixels per second.
+        const SPEED = 90;
+
+        // Walkable area for a character's feet, measured on the room art.
+        const FEET_AREA = { minX: 60, maxX: 580, minY: 150, maxY: 315 };
+
+        // Area where a sprite's top-left corner may move (derived from the feet area).
+        const WALK_BOUNDS = {
+            minX: FEET_AREA.minX - SPRITE_W / 2,
+            maxX: FEET_AREA.maxX - SPRITE_W / 2,
+            minY: FEET_AREA.minY - SPRITE_H,
+            maxY: FEET_AREA.maxY - SPRITE_H
+        };
+
+        // Blocked rectangles for the feet position (the two gift piles, with a margin).
+        const OBSTACLES = [
+            { x: 511, y: 232, w: 91, h: 71 },
+            { x: 21, y: 254, w: 79, h: 43 }
+        ];
+
+        function isFeetBlocked(x, y) {
+            const feetX = x + SPRITE_W / 2;
+            const feetY = y + SPRITE_H;
+
+            return OBSTACLES.some(
+                rect =>
+                    feetX > rect.x &&
+                    feetX < rect.x + rect.w &&
+                    feetY > rect.y &&
+                    feetY < rect.y + rect.h
+            );
+        }
+
+        const STATE_SEND_INTERVAL_MS = 66;
 
         const player = {
             x: 0,
@@ -247,7 +291,7 @@
             frame: 1,
             animStep: 0,
             isMoving: false,
-            speed: 4
+            spriteFile: DEFAULT_SPRITE_FILE
         };
 
         const DIRECTIONS = {
@@ -257,61 +301,103 @@
             up: { row: 3, dx: 0, dy: -1 }
         };
 
-        const sprite = new Image();
-        sprite.src = 'sprites.png';
+        function isDirection(value) {
+            return typeof value === 'string' &&
+                Object.prototype.hasOwnProperty.call(DIRECTIONS, value);
+        }
 
-        let spriteReady = false;
+        const spriteCache = new Map();
+
+        function getSprite(file) {
+            const safeFile = /^[A-Za-z0-9_.-]+\.png$/.test(file || '')
+                ? file
+                : DEFAULT_SPRITE_FILE;
+
+            let entry = spriteCache.get(safeFile);
+
+            if (!entry) {
+                entry = { image: new Image(), ready: false, failed: false };
+
+                entry.image.onload = () => {
+                    entry.ready = true;
+                };
+
+                entry.image.onerror = () => {
+                    entry.failed = true;
+                };
+
+                entry.image.src = safeFile;
+                spriteCache.set(safeFile, entry);
+            }
+
+            if (entry.failed && safeFile !== DEFAULT_SPRITE_FILE) {
+                return getSprite(DEFAULT_SPRITE_FILE);
+            }
+
+            return entry;
+        }
+
         let lastAnimTime = 0;
+        let lastFrameTime = 0;
 
         const FRAME_DURATION = 150;
         const ANIMATION_SEQUENCE = [0, 1, 2, 1];
 
-        sprite.onload = () => {
-            spriteReady = true;
-        };
+        let viewScale = 1;
+        let viewOffsetX = 0;
+        let viewOffsetY = 0;
 
         function resize() {
             canvas.width = Math.floor(window.innerWidth);
             canvas.height = Math.floor(window.innerHeight);
 
-            player.x = Math.max(
-                0,
-                Math.min(player.x, canvas.width - SPRITE_W)
+            ctx.imageSmoothingEnabled = false;
+
+            viewScale = Math.max(
+                0.01,
+                Math.min(canvas.width / WORLD_W, canvas.height / WORLD_H)
             );
 
-            player.y = Math.max(
-                0,
-                Math.min(player.y, canvas.height - SPRITE_H)
-            );
+            viewOffsetX = Math.floor((canvas.width - WORLD_W * viewScale) / 2);
+            viewOffsetY = Math.floor((canvas.height - WORLD_H * viewScale) / 2);
         }
 
-        function drawFloor() {
-            const columns = Math.ceil(canvas.width / TILE) + 1;
-            const rows = Math.ceil(canvas.height / TILE) + 1;
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(value, max));
+        }
 
-            for (let y = 0; y < rows; y++) {
-                for (let x = 0; x < columns; x++) {
-                    ctx.fillStyle =
-                        (x + y) % 2 === 0 ? '#3a3a3a' : '#5a5a5a';
+        function round1(value) {
+            return Math.round(value * 10) / 10;
+        }
 
-                    ctx.fillRect(
-                        x * TILE,
-                        y * TILE,
-                        TILE,
-                        TILE
-                    );
-                }
+        const roomImage = new Image();
+        let roomReady = false;
+
+        roomImage.onload = () => {
+            roomReady = true;
+        };
+
+        roomImage.src = ROOM_IMAGE_FILE;
+
+        function drawRoom() {
+            if (roomReady) {
+                ctx.drawImage(roomImage, 0, 0, WORLD_W, WORLD_H);
+                return;
             }
+
+            ctx.fillStyle = '#2a1f3a';
+            ctx.fillRect(0, 0, WORLD_W, WORLD_H);
         }
 
-        function drawPlayer() {
-            const direction = DIRECTIONS[player.dir];
+        function drawCharacter(character) {
+            const direction = DIRECTIONS[character.dir] || DIRECTIONS.down;
+            const entry = getSprite(character.spriteFile);
 
-            if (!spriteReady) {
+            if (!entry.ready) {
                 ctx.fillStyle = '#0f0';
                 ctx.fillRect(
-                    player.x,
-                    player.y,
+                    Math.floor(character.x),
+                    Math.floor(character.y),
                     SPRITE_W,
                     SPRITE_H
                 );
@@ -319,13 +405,13 @@
             }
 
             ctx.drawImage(
-                sprite,
-                player.frame * FRAME_W + SAFE_OFFSET_X,
+                entry.image,
+                character.frame * FRAME_W + SAFE_OFFSET_X,
                 direction.row * FRAME_H + SAFE_OFFSET_Y,
                 SAFE_W,
                 SAFE_H,
-                Math.floor(player.x),
-                Math.floor(player.y),
+                Math.floor(character.x),
+                Math.floor(character.y),
                 SPRITE_W,
                 SPRITE_H
             );
@@ -348,37 +434,485 @@
             }
         }
 
-        function update(timestamp) {
+        // ---------------------------------------------------------------------------
+        // Other players
+        // ---------------------------------------------------------------------------
+
+        const remotePlayers = new Map();
+        let selfId = null;
+
+        function upsertRemote(info) {
+            if (!info || typeof info.id !== 'string' || info.id === selfId) {
+                return;
+            }
+
+            let remote = remotePlayers.get(info.id);
+            const isNew = !remote;
+
+            if (isNew) {
+                remote = {
+                    id: info.id,
+                    name: '',
+                    spriteFile: DEFAULT_SPRITE_FILE,
+                    x: 0,
+                    y: 0,
+                    targetX: 0,
+                    targetY: 0,
+                    dir: 'down',
+                    moving: false,
+                    frame: 1,
+                    animStep: 0,
+                    lastAnimTime: 0
+                };
+
+                remotePlayers.set(info.id, remote);
+            }
+
+            if (typeof info.sprite === 'string') {
+                remote.spriteFile = info.sprite;
+            }
+
+            if (typeof info.name === 'string') {
+                remote.name = info.name;
+            }
+
+            if (Number.isFinite(info.x) && Number.isFinite(info.y)) {
+                remote.targetX = clamp(info.x, WALK_BOUNDS.minX, WALK_BOUNDS.maxX);
+                remote.targetY = clamp(info.y, WALK_BOUNDS.minY, WALK_BOUNDS.maxY);
+
+                if (isNew) {
+                    remote.x = remote.targetX;
+                    remote.y = remote.targetY;
+                }
+            }
+
+            if (isDirection(info.dir)) {
+                remote.dir = info.dir;
+            }
+
+            if (typeof info.moving === 'boolean') {
+                remote.moving = info.moving;
+            }
+        }
+
+        function updateRemoteAnimation(remote, timestamp) {
+            if (!remote.moving) {
+                remote.frame = 1;
+                remote.animStep = 0;
+                remote.lastAnimTime = 0;
+                return;
+            }
+
+            if (!remote.lastAnimTime) {
+                remote.lastAnimTime = timestamp;
+                remote.animStep = 0;
+                remote.frame = 0;
+                return;
+            }
+
+            if (timestamp - remote.lastAnimTime >= FRAME_DURATION) {
+                remote.lastAnimTime = timestamp;
+                remote.animStep =
+                    (remote.animStep + 1) % ANIMATION_SEQUENCE.length;
+
+                remote.frame = ANIMATION_SEQUENCE[remote.animStep];
+            }
+        }
+
+        function updateRemotePlayers(timestamp, dt) {
+            const k = 1 - Math.exp(-dt * 12);
+
+            for (const remote of remotePlayers.values()) {
+                const dx = remote.targetX - remote.x;
+                const dy = remote.targetY - remote.y;
+
+                if (Math.abs(dx) + Math.abs(dy) > 120) {
+                    remote.x = remote.targetX;
+                    remote.y = remote.targetY;
+                } else {
+                    remote.x += dx * k;
+                    remote.y += dy * k;
+                }
+
+                updateRemoteAnimation(remote, timestamp);
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Welcome dialog and lobby music
+        // ---------------------------------------------------------------------------
+
+        let welcomeDismissed = false;
+        let lobbyMusic = null;
+
+        try {
+            lobbyMusic = new Audio('LOBBY-MUSIC.m4a');
+            lobbyMusic.loop = true;
+            lobbyMusic.preload = 'auto';
+        } catch (error) {
+            lobbyMusic = null;
+        }
+
+        function startLobbyMusic() {
+            try {
+                if (!lobbyMusic || !lobbyMusic.paused) {
+                    return;
+                }
+
+                const playPromise = lobbyMusic.play();
+
+                if (playPromise && playPromise.catch) {
+                    playPromise.catch(() => {});
+                }
+            } catch (error) {
+                // Music must never break the game.
+            }
+        }
+
+        function setupWelcomeDialog() {
+            const overlay = document.getElementById('welcomeOverlay');
+            const okButton = document.getElementById('welcomeOk');
+
+            if (!overlay || !okButton) {
+                welcomeDismissed = true;
+                return;
+            }
+
+            function dismissWelcome(event) {
+                if (event) {
+                    event.preventDefault();
+                }
+
+                if (welcomeDismissed) {
+                    return;
+                }
+
+                welcomeDismissed = true;
+                overlay.hidden = true;
+                startLobbyMusic();
+            }
+
+            okButton.addEventListener('touchend', dismissWelcome, { passive: false });
+            okButton.addEventListener('click', dismissWelcome);
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && welcomeDismissed) {
+                startLobbyMusic();
+            }
+        });
+
+        // ---------------------------------------------------------------------------
+        // Server connection
+        // ---------------------------------------------------------------------------
+
+        let socket = null;
+        let reconnectDelay = 1000;
+        let reconnectTimer = null;
+        let connectTimeoutTimer = null;
+        let lastSentState = null;
+        let lastSendTime = 0;
+        let connectionState = 'connecting';
+        let connectAttempts = 0;
+        let lastCloseCode = '-';
+
+        let DEBUG = false;
+
+        try {
+            DEBUG = new URLSearchParams(window.location.search).has('debug');
+        } catch (error) {
+            DEBUG = false;
+        }
+
+        function sendJson(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                try {
+                    socket.send(JSON.stringify(message));
+                } catch (error) {
+                    // Ignore send errors; the close handler will reconnect.
+                }
+            }
+        }
+
+        function getTelegramUser() {
+            try {
+                return tg?.initDataUnsafe?.user || null;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function handleServerMessage(raw) {
+            let msg;
+
+            try {
+                msg = JSON.parse(raw);
+            } catch (error) {
+                return;
+            }
+
+            if (!msg || typeof msg.type !== 'string') {
+                return;
+            }
+
+            if (msg.type === 'welcome') {
+                selfId = typeof msg.selfId === 'string' ? msg.selfId : null;
+
+                remotePlayers.clear();
+
+                if (Array.isArray(msg.players)) {
+                    for (const info of msg.players) {
+                        if (info && info.id === selfId) {
+                            if (typeof info.sprite === 'string') {
+                                player.spriteFile = info.sprite;
+                            }
+                        } else {
+                            upsertRemote(info);
+                        }
+                    }
+                }
+
+                lastSentState = null;
+                return;
+            }
+
+            if (msg.type === 'joined') {
+                upsertRemote(msg.player);
+                return;
+            }
+
+            if (msg.type === 'left') {
+                remotePlayers.delete(msg.id);
+                return;
+            }
+
+            if (msg.type === 'snapshot') {
+                if (Array.isArray(msg.players)) {
+                    for (const info of msg.players) {
+                        upsertRemote(info);
+                    }
+                }
+                return;
+            }
+
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) {
+                return;
+            }
+
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                connectToServer();
+            }, reconnectDelay);
+
+            reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+        }
+
+        function connectToServer() {
+            if (
+                socket &&
+                (socket.readyState === WebSocket.OPEN ||
+                    socket.readyState === WebSocket.CONNECTING)
+            ) {
+                return;
+            }
+
+            let ws;
+
+            connectionState = 'connecting';
+            connectAttempts++;
+
+            try {
+                ws = new WebSocket(SERVER_URL);
+            } catch (error) {
+                scheduleReconnect();
+                return;
+            }
+
+            socket = ws;
+
+            clearTimeout(connectTimeoutTimer);
+            connectTimeoutTimer = setTimeout(() => {
+                if (ws.readyState === WebSocket.CONNECTING) {
+                    ws.close();
+                }
+            }, 20000);
+
+            ws.addEventListener('open', () => {
+                clearTimeout(connectTimeoutTimer);
+                reconnectDelay = 1000;
+                connectionState = 'online';
+
+                const user = getTelegramUser();
+
+                sendJson({
+                    type: 'join',
+                    tgId: user?.id ?? null,
+                    username: user?.username ?? '',
+                    name: user?.first_name || user?.username || 'Player',
+                    x: round1(player.x),
+                    y: round1(player.y),
+                    dir: player.dir
+                });
+
+            });
+
+            ws.addEventListener('message', event => {
+                try {
+                    handleServerMessage(event.data);
+                } catch (error) {
+                    // A bad message must never break the game.
+                }
+            });
+
+            ws.addEventListener('close', event => {
+                clearTimeout(connectTimeoutTimer);
+                connectionState = 'offline';
+                lastCloseCode = event && event.code !== undefined ? event.code : '-';
+
+                if (socket === ws) {
+                    socket = null;
+                    selfId = null;
+                    remotePlayers.clear();
+                }
+
+                scheduleReconnect();
+            });
+
+            ws.addEventListener('error', () => {});
+        }
+
+        function sendStateIfNeeded(timestamp) {
+            if (!selfId || timestamp - lastSendTime < STATE_SEND_INTERVAL_MS) {
+                return;
+            }
+
+            const state = {
+                x: round1(player.x),
+                y: round1(player.y),
+                dir: player.dir,
+                moving: player.isMoving
+            };
+
+            if (
+                lastSentState &&
+                lastSentState.x === state.x &&
+                lastSentState.y === state.y &&
+                lastSentState.dir === state.dir &&
+                lastSentState.moving === state.moving
+            ) {
+                return;
+            }
+
+            lastSentState = state;
+            lastSendTime = timestamp;
+
+            sendJson({
+                type: 'state',
+                x: state.x,
+                y: state.y,
+                dir: state.dir,
+                moving: state.moving
+            });
+        }
+
+        // ---------------------------------------------------------------------------
+        // Game loop
+        // ---------------------------------------------------------------------------
+
+        function update(timestamp, dt) {
             if (player.isMoving) {
                 const direction = DIRECTIONS[player.dir];
 
-                player.x += direction.dx * player.speed;
-                player.y += direction.dy * player.speed;
-
-                player.x = Math.max(
-                    0,
-                    Math.min(player.x, canvas.width - SPRITE_W)
+                const nextX = clamp(
+                    player.x + direction.dx * SPEED * dt,
+                    WALK_BOUNDS.minX,
+                    WALK_BOUNDS.maxX
                 );
 
-                player.y = Math.max(
-                    0,
-                    Math.min(player.y, canvas.height - SPRITE_H)
+                const nextY = clamp(
+                    player.y + direction.dy * SPEED * dt,
+                    WALK_BOUNDS.minY,
+                    WALK_BOUNDS.maxY
                 );
+
+                if (!isFeetBlocked(nextX, player.y)) {
+                    player.x = nextX;
+                }
+
+                if (!isFeetBlocked(player.x, nextY)) {
+                    player.y = nextY;
+                }
             }
 
             updateAnimation(timestamp);
+            updateRemotePlayers(timestamp, dt);
+            sendStateIfNeeded(timestamp);
         }
 
-        function gameLoop(timestamp) {
+        function drawDebug() {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fillRect(0, 0, 340, 22);
+            ctx.fillStyle = '#0f0';
+            ctx.font = '14px monospace';
+            ctx.textBaseline = 'top';
+            ctx.fillText(
+                'net: ' + connectionState +
+                ' | players: ' + (remotePlayers.size + (selfId ? 1 : 0)) +
+                ' | tries: ' + connectAttempts +
+                ' | close: ' + lastCloseCode,
+                6,
+                4
+            );
+        }
+
+        function render() {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            drawFloor();
-            drawPlayer();
-            update(timestamp);
+            ctx.save();
+            ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
+
+            ctx.beginPath();
+            ctx.rect(0, 0, WORLD_W, WORLD_H);
+            ctx.clip();
+
+            drawRoom();
+
+            const characters = [player, ...remotePlayers.values()];
+            characters.sort((a, b) => a.y - b.y);
+
+            for (const character of characters) {
+                drawCharacter(character);
+            }
+
+            ctx.restore();
+
+            if (DEBUG) {
+                drawDebug();
+            }
+        }
+
+        function gameLoop(timestamp) {
+            const dt = lastFrameTime
+                ? Math.min(0.05, (timestamp - lastFrameTime) / 1000)
+                : 0;
+
+            lastFrameTime = timestamp;
+
+            update(timestamp, dt);
+            render();
 
             requestAnimationFrame(gameLoop);
         }
+
+        // ---------------------------------------------------------------------------
+        // Controls
+        // ---------------------------------------------------------------------------
 
         function handleInput(direction, pressed) {
             if (pressed && !welcomeDismissed) {
@@ -506,75 +1040,20 @@
             });
         }
 
-        let welcomeDismissed = false;
-        let lobbyMusic = null;
-
-        try {
-            lobbyMusic = new Audio('LOBBY-MUSIC.m4a');
-            lobbyMusic.loop = true;
-            lobbyMusic.preload = 'auto';
-        } catch (error) {
-            lobbyMusic = null;
-        }
-
-        function startLobbyMusic() {
-            try {
-                if (!lobbyMusic || !lobbyMusic.paused) {
-                    return;
-                }
-
-                const playPromise = lobbyMusic.play();
-
-                if (playPromise && playPromise.catch) {
-                    playPromise.catch(() => {});
-                }
-            } catch (error) {
-                // Music must never break the game.
-            }
-        }
-
-        function setupWelcomeDialog() {
-            const overlay = document.getElementById('welcomeOverlay');
-            const okButton = document.getElementById('welcomeOk');
-
-            if (!overlay || !okButton) {
-                welcomeDismissed = true;
-                return;
-            }
-
-            function dismissWelcome(event) {
-                if (event) {
-                    event.preventDefault();
-                }
-
-                if (welcomeDismissed) {
-                    return;
-                }
-
-                welcomeDismissed = true;
-                overlay.hidden = true;
-                startLobbyMusic();
-            }
-
-            okButton.addEventListener('touchend', dismissWelcome, { passive: false });
-            okButton.addEventListener('click', dismissWelcome);
-        }
-
         window.addEventListener('resize', resize);
 
         resize();
 
-        player.x = Math.floor(
-            (canvas.width - SPRITE_W) / 2
-        );
+        // Spawn on the carpet, with a small random spread so players do not stack exactly.
+        player.x = Math.floor(WORLD_W / 2 - SPRITE_W / 2 + (Math.random() * 80 - 40));
+        player.y = Math.floor(270 - SPRITE_H + (Math.random() * 30 - 15));
 
-        player.y = Math.floor(
-            (canvas.height - SPRITE_H) / 2
-        );
+        getSprite(DEFAULT_SPRITE_FILE);
 
         setupWelcomeDialog();
         setupTouchControls();
         setupKeyboardControls();
+        connectToServer();
 
         requestAnimationFrame(gameLoop);
     </script>
