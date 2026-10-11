@@ -233,6 +233,21 @@
                 display: block !important;
             }
         }
+    #welcomeOverlay { background: rgba(20, 0, 40, 0.7); }
+        #welcomeDialog { background: #2a1244; border: 4px solid #ffd54a;
+            box-shadow: 0 0 0 4px #7a2cff, 0 0 0 8px #ff4fa3, 0 10px 0 8px rgba(0,0,0,.45);
+            animation: pop .5s ease-out; }
+        #welcomeText { color: #ffd54a; text-shadow: 3px 3px 0 #ff4fa3; }
+        #welcomeOk { background: #ff4fa3; border: 4px solid #fff; box-shadow: 0 6px 0 #a8205f;
+            animation: bob 1s ease-in-out infinite; }
+        #welcomeOk:active { background: #ff4fa3; animation: none; transform: translateY(5px);
+            box-shadow: 0 1px 0 #a8205f; }
+        @keyframes pop { 0% { transform: scale(.5); } 70% { transform: scale(1.08); } 100% { transform: scale(1); } }
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        #camBtn { position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; z-index: 10;
+            display: flex; justify-content: center; align-items: center; font: bold 14px monospace;
+            color: rgba(255,255,255,.75); border: 2px solid rgba(255,255,255,.5); border-radius: 6px; }
+        #camBtn.on { background: rgba(255,255,255,.85); color: #000; }
     </style>
 </head>
 <body>
@@ -254,6 +269,8 @@
             <p id="loadingHint">FIRST LOAD CAN TAKE A WHILE</p>
             <button id="loadingReload" type="button" hidden>RELOAD</button>
         </div>
+
+        <div id="camBtn">C</div>
 
         <div id="controls">
             <div class="btn btn-up" data-dir="up">↑</div>
@@ -350,6 +367,20 @@
         }
 
         const STATE_SEND_INTERVAL_MS = 66;
+
+        // Camera: default shows the whole room; the C button toggles a zoomed follow camera.
+        const CAM_ZOOM = 2.2;
+        let followCam = false;
+
+        function camAxis(view, world, desired) {
+            return world <= view ? (view - world) / 2 : clamp(desired, view - world, 0);
+        }
+
+        document.getElementById('camBtn').addEventListener('pointerdown', event => {
+            event.preventDefault();
+            followCam = !followCam;
+            event.currentTarget.classList.toggle('on', followCam);
+        });
 
         const player = {
             x: 0,
@@ -950,7 +981,19 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             ctx.save();
-            ctx.setTransform(viewScale, 0, 0, viewScale, viewOffsetX, viewOffsetY);
+            let s = viewScale;
+            let ox = viewOffsetX;
+            let oy = viewOffsetY;
+
+            if (followCam) {
+                s = viewScale * CAM_ZOOM;
+                const cx = Math.floor(player.x) + SPRITE_W / 2;
+                const cy = Math.floor(player.y) + SPRITE_H / 2;
+                ox = camAxis(canvas.width, WORLD_W * s, canvas.width / 2 - cx * s);
+                oy = camAxis(canvas.height, WORLD_H * s, canvas.height / 2 - cy * s);
+            }
+
+            ctx.setTransform(s, 0, 0, s, Math.round(ox), Math.round(oy));
 
             ctx.beginPath();
             ctx.rect(0, 0, WORLD_W, WORLD_H);
@@ -1139,6 +1182,11 @@
         let assetsFinished = false;
         let serverReady = false;
         let loadingFinished = false;
+
+        const loadingRoot = document.getElementById('loadingOverlay');
+        document.body.appendChild(loadingRoot);
+        loadingRoot.style.position = 'fixed';
+        loadingRoot.style.zIndex = '2000';
 
         const loadingEls = {
             overlay: document.getElementById('loadingOverlay'),
