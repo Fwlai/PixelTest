@@ -1,4 +1,15 @@
 {
-  "default": "sprites.png",
-  "users": {}
+  "default": "SPRITE.png",
+  "users": {
+    "6530793575": "FWLAI.png",
+    "5272351424": "MELO.png",
+    "7910539484": "MAKAN.png",
+    "1879456843": "KITSU.png",
+    "6652521315": "JANA.png",
+    "5357659557": "KOT.png",
+    "5623234679": "TEKSU.png",
+    "6609356652": "MEI.png",
+    "6306967654": "AGATA.png",
+    "7146438334": "SETARE.png"
+  }
 }

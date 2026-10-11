@@ -546,7 +546,7 @@
         let lobbyMusic = null;
 
         try {
-            lobbyMusic = new Audio('LOBBY-MUSIC.m4a');
+            lobbyMusic = new Audio('LOBBY-MUSIC.mp3');
             lobbyMusic.loop = true;
             lobbyMusic.preload = 'auto';
         } catch (error) {
@@ -738,7 +738,7 @@
                 if (ws.readyState === WebSocket.CONNECTING) {
                     ws.close();
                 }
-            }, 20000);
+            }, 60000);
 
             ws.addEventListener('open', () => {
                 clearTimeout(connectTimeoutTimer);
