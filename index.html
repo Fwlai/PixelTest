@@ -116,6 +116,66 @@
             background: rgba(0, 0, 0, 0.6);
         }
 
+        #loadingOverlay {
+            position: absolute;
+            inset: 0;
+            z-index: 200;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 18px;
+            color: #fff;
+            font-family: "Courier New", Courier, monospace;
+            text-align: center;
+            padding: 0 20px;
+        }
+
+        #loadingOverlay[hidden] {
+            display: none;
+        }
+
+        #loadingText {
+            font-size: 26px;
+            font-weight: bold;
+            letter-spacing: 3px;
+        }
+
+        #loadingBar {
+            width: min(60vw, 320px);
+            height: 20px;
+            border: 3px solid #fff;
+            padding: 2px;
+        }
+
+        #loadingFill {
+            width: 0%;
+            height: 100%;
+            background: #fff;
+        }
+
+        #loadingHint {
+            font-size: 14px;
+            opacity: 0.75;
+            min-height: 18px;
+        }
+
+        #loadingReload {
+            min-width: 160px;
+            min-height: 48px;
+            background: #000;
+            border: 4px solid #fff;
+            color: #fff;
+            font-size: 22px;
+            font-family: "Courier New", Courier, monospace;
+        }
+
+        #loadingReload:active {
+            background: #fff;
+            color: #000;
+        }
+
         #welcomeOverlay[hidden] {
             display: none;
         }
@@ -181,11 +241,18 @@
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
 
-        <div id="welcomeOverlay">
+        <div id="welcomeOverlay" hidden>
             <div id="welcomeDialog" role="dialog" aria-modal="true" aria-labelledby="welcomeText">
                 <p id="welcomeText">tavalodeee</p>
                 <button id="welcomeOk" type="button" aria-label="OK">🥳🤩🥳🥳</button>
             </div>
+        </div>
+
+        <div id="loadingOverlay">
+            <p id="loadingText">LOADING 0%</p>
+            <div id="loadingBar"><div id="loadingFill"></div></div>
+            <p id="loadingHint">FIRST LOAD CAN TAKE A WHILE</p>
+            <button id="loadingReload" type="button" hidden>RELOAD</button>
         </div>
 
         <div id="controls">
@@ -377,7 +444,7 @@
             roomReady = true;
         };
 
-        roomImage.src = ROOM_IMAGE_FILE;
+        // The room image is loaded by the preloader below.
 
         function drawRoom() {
             if (roomReady) {
@@ -546,7 +613,7 @@
         let lobbyMusic = null;
 
         try {
-            lobbyMusic = new Audio('LOBBY-MUSIC.mp3');
+            lobbyMusic = new Audio();
             lobbyMusic.loop = true;
             lobbyMusic.preload = 'auto';
         } catch (error) {
@@ -658,6 +725,9 @@
 
             if (msg.type === 'welcome') {
                 selfId = typeof msg.selfId === 'string' ? msg.selfId : null;
+
+                serverReady = true;
+                updateLoading();
 
                 remotePlayers.clear();
 
@@ -1054,6 +1124,199 @@
         player.y = Math.floor(270 - SPRITE_H + (Math.random() * 30 - 15));
 
         getSprite(DEFAULT_SPRITE_FILE);
+
+        const PRELOAD_SPRITES = [
+            'SPRITE.png', 'FWLAI.png', 'MELO.png', 'MAKAN.png', 'KITSU.png',
+            'JANA.png', 'KOT.png', 'TEKSU.png', 'MEI.png', 'AGATA.png', 'SETARE.png'
+        ];
+        const MUSIC_FILE = 'LOBBY-MUSIC.mp3';
+        const MUSIC_WEIGHT = 8;
+        const SERVER_WEIGHT = 4;
+        const RELOAD_BUTTON_AFTER_MS = 40000;
+
+        let imagesLoaded = 0;
+        let musicFraction = 0;
+        let assetsFinished = false;
+        let serverReady = false;
+        let loadingFinished = false;
+
+        const loadingEls = {
+            overlay: document.getElementById('loadingOverlay'),
+            text: document.getElementById('loadingText'),
+            fill: document.getElementById('loadingFill'),
+            hint: document.getElementById('loadingHint'),
+            reload: document.getElementById('loadingReload')
+        };
+
+        function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function loadImageInto(img, src) {
+            return new Promise(resolve => {
+                let attempt = 0;
+
+                const tryLoad = () => {
+                    attempt++;
+
+                    img.onload = () => resolve(true);
+
+                    img.onerror = () => {
+                        if (attempt < 4) {
+                            setTimeout(tryLoad, 700 * attempt);
+                        } else {
+                            resolve(false);
+                        }
+                    };
+
+                    img.src = attempt > 1 ? src + '?r=' + attempt : src;
+                };
+
+                tryLoad();
+            });
+        }
+
+        function finishLoading() {
+            loadingFinished = true;
+
+            if (loadingEls.overlay) {
+                loadingEls.overlay.hidden = true;
+            }
+
+            const overlay = document.getElementById('welcomeOverlay');
+
+            if (overlay && !welcomeDismissed) {
+                overlay.hidden = false;
+            }
+        }
+
+        function updateLoading() {
+            if (!loadingEls.overlay || loadingFinished) {
+                return;
+            }
+
+            const totalUnits = PRELOAD_SPRITES.length + 1 + MUSIC_WEIGHT + SERVER_WEIGHT;
+            const doneUnits =
+                imagesLoaded +
+                MUSIC_WEIGHT * musicFraction +
+                (serverReady ? SERVER_WEIGHT : 0);
+
+            const percent = Math.min(100, Math.floor((doneUnits / totalUnits) * 100));
+
+            loadingEls.fill.style.width = percent + '%';
+            loadingEls.text.textContent = 'LOADING ' + percent + '%';
+
+            if (assetsFinished && !serverReady) {
+                loadingEls.hint.textContent = 'CONNECTING TO SERVER... THIS CAN TAKE A MINUTE';
+            }
+
+            if (assetsFinished && serverReady) {
+                finishLoading();
+            }
+        }
+
+        async function preloadSprite(file) {
+            const img = new Image();
+            const ok = await loadImageInto(img, file);
+
+            if (ok) {
+                spriteCache.set(file, { image: img, ready: true, failed: false });
+            }
+
+            imagesLoaded++;
+            updateLoading();
+        }
+
+        async function preloadRoom() {
+            roomReady = await loadImageInto(roomImage, ROOM_IMAGE_FILE);
+            imagesLoaded++;
+            updateLoading();
+        }
+
+        async function preloadMusic() {
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    const res = await fetch(MUSIC_FILE);
+
+                    if (!res.ok) {
+                        throw new Error('bad status');
+                    }
+
+                    const total = Number(res.headers.get('content-length')) || 0;
+                    let blob;
+
+                    if (res.body && res.body.getReader && total) {
+                        const reader = res.body.getReader();
+                        const chunks = [];
+                        let received = 0;
+
+                        for (;;) {
+                            const result = await reader.read();
+
+                            if (result.done) {
+                                break;
+                            }
+
+                            chunks.push(result.value);
+                            received += result.value.length;
+                            musicFraction = Math.min(1, received / total);
+                            updateLoading();
+                        }
+
+                        blob = new Blob(chunks, {
+                            type: res.headers.get('content-type') || 'audio/mpeg'
+                        });
+                    } else {
+                        blob = await res.blob();
+                    }
+
+                    if (lobbyMusic) {
+                        lobbyMusic.src = URL.createObjectURL(blob);
+                    }
+
+                    musicFraction = 1;
+                    updateLoading();
+                    return;
+                } catch (error) {
+                    musicFraction = 0;
+                    await wait(800 * attempt);
+                }
+            }
+
+            // Music must never block the game: fall back to normal streaming.
+            if (lobbyMusic) {
+                lobbyMusic.src = MUSIC_FILE;
+            }
+
+            musicFraction = 1;
+            updateLoading();
+        }
+
+        async function startPreload() {
+            await Promise.all([
+                preloadRoom(),
+                ...PRELOAD_SPRITES.map(preloadSprite),
+                preloadMusic()
+            ]);
+
+            assetsFinished = true;
+            updateLoading();
+        }
+
+        if (loadingEls.reload) {
+            loadingEls.reload.addEventListener('click', () => {
+                location.reload();
+            });
+        }
+
+        setTimeout(() => {
+            if (!loadingFinished && loadingEls.overlay) {
+                loadingEls.hint.textContent = 'STILL LOADING... TAP RELOAD IF NOTHING HAPPENS';
+                loadingEls.reload.hidden = false;
+            }
+        }, RELOAD_BUTTON_AFTER_MS);
+
+        startPreload();
 
         setupWelcomeDialog();
         setupTouchControls();
