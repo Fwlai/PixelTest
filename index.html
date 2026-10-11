@@ -228,7 +228,7 @@
         ctx.imageSmoothingEnabled = false;
 
         const SERVER_URL = 'wss://pixeltest-server.onrender.com';
-        const DEFAULT_SPRITE_FILE = 'sprites.png';
+        const DEFAULT_SPRITE_FILE = 'SPRITE.png';
 
         // The room is a fixed-size world that is scaled to fit every screen,
         // so all players share the same coordinates.
@@ -608,6 +608,7 @@
 
         let socket = null;
         let reconnectDelay = 1000;
+        let stopReconnect = false;
         let reconnectTimer = null;
         let connectTimeoutTimer = null;
         let lastSentState = null;
@@ -698,7 +699,7 @@
         }
 
         function scheduleReconnect() {
-            if (reconnectTimer) {
+            if (reconnectTimer || stopReconnect) {
                 return;
             }
 
@@ -771,6 +772,10 @@
                 clearTimeout(connectTimeoutTimer);
                 connectionState = 'offline';
                 lastCloseCode = event && event.code !== undefined ? event.code : '-';
+
+                if (event && event.code === 4000) {
+                    stopReconnect = true;
+                }
 
                 if (socket === ws) {
                     socket = null;
@@ -1053,6 +1058,23 @@
         setupWelcomeDialog();
         setupTouchControls();
         setupKeyboardControls();
+
+        window.addEventListener('pagehide', () => {
+            stopReconnect = true;
+
+            try {
+                if (socket) {
+                    socket.close(1000);
+                }
+            } catch (error) {
+                // Ignore close errors.
+            }
+        });
+
+        window.addEventListener('pageshow', () => {
+            stopReconnect = false;
+            connectToServer();
+        });
         connectToServer();
 
         requestAnimationFrame(gameLoop);

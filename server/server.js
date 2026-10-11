@@ -9,7 +9,7 @@ const DIRECTIONS = new Set(['down', 'left', 'right', 'up']);
 const MAX_PLAYERS = 30;
 const MAX_PAYLOAD_BYTES = 1024;
 const SNAPSHOT_INTERVAL_MS = 66;
-const HEARTBEAT_INTERVAL_MS = 30000;
+const HEARTBEAT_INTERVAL_MS = 10000;
 // Loose limit for now; tightened once the final room size is known.
 const COORD_LIMIT = 5000;
 
@@ -114,6 +114,7 @@ function start(port, options = {}) {
     : loadSpriteConfig();
 
   const musicEpoch = Date.now();
+  console.log('sprites loaded:', Object.keys(sprites.users).length, 'users, default', sprites.defaultSprite);
   const players = new Map();
   const sockets = new Map();
   let nextId = 1;
@@ -176,6 +177,19 @@ function start(port, options = {}) {
         return;
       }
 
+      const tgId = Number.isSafeInteger(msg.tgId) ? msg.tgId : null;
+
+      if (tgId !== null) {
+        for (const [otherWs, otherId] of [...sockets.entries()]) {
+          const other = players.get(otherId);
+
+          if (other && other.tgId === tgId) {
+            removePlayer(otherWs);
+            otherWs.close(4000, 'replaced');
+          }
+        }
+      }
+
       if (players.size >= MAX_PLAYERS) {
         send(ws, { type: 'full' });
         ws.close(1013, 'server full');
@@ -187,6 +201,7 @@ function start(port, options = {}) {
 
       const player = {
         id: 'p' + nextId++,
+        tgId,
         name: cleanName(msg.name) || 'Player',
         sprite: spriteFor(sprites, username, msg.tgId),
         x: cleanCoord(msg.x) ?? 0,
@@ -196,6 +211,7 @@ function start(port, options = {}) {
       };
 
       players.set(player.id, player);
+      console.log('join', player.id, tgId, username, player.sprite);
       sockets.set(ws, player.id);
 
       send(ws, {
