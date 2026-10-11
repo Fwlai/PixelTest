@@ -133,7 +133,7 @@ function start(port, options = {}) {
       'Content-Type': 'text/plain',
       'Access-Control-Allow-Origin': '*'
     });
-    res.end('PixelTest server ok\n');
+    res.end('PixelTest server ok (chat)\n');
   });
 
   const wss = new WebSocketServer({
@@ -245,6 +245,7 @@ function start(port, options = {}) {
       }
 
       player.lastChat = now;
+      console.log('chat', player.id, text);
       broadcast({ type: 'chat', id: player.id, text });
       return;
     }

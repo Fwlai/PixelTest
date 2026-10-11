@@ -340,10 +340,10 @@
             <button id="loadingReload" type="button" hidden>RELOAD</button>
         </div>
 
-        <div id="chatBar" hidden>
-            <input id="chatInput" type="text" maxlength="40" autocomplete="off" dir="auto" placeholder="...">
-            <button id="chatSend" type="button">Send</button>
-        </div>
+        <form id="chatBar" action="javascript:void(0)" hidden>
+            <input id="chatInput" type="text" maxlength="40" autocomplete="off" enterkeyhint="send" dir="auto" placeholder="...">
+            <button id="chatSend" type="submit">Send</button>
+        </form>
         <div id="chatBtn">Chat</div>
         <div id="camBtn">C</div>
 
@@ -545,11 +545,15 @@
 
             sendJson({ type: 'chat', text });
             chatInput.value = '';
+            setChatOpen(false);
         }
 
         chatBtn.addEventListener('click', () => setChatOpen(chatBar.hidden));
         chatSend.addEventListener('pointerdown', e => e.preventDefault());
-        chatSend.addEventListener('click', sendChat);
+        chatBar.addEventListener('submit', e => {
+            e.preventDefault();
+            sendChat();
+        });
 
         // Keep typing from moving the character (WASD) or reaching the game.
         chatInput.addEventListener('keydown', e => {
@@ -561,7 +565,7 @@
             }
         });
         chatInput.addEventListener('keyup', e => e.stopPropagation());
-        chatInput.addEventListener('blur', () => resize());
+        chatInput.addEventListener('blur', () => setTimeout(resize, 500));
 
         // Short sprites can walk further back: lowest allowed feet Y per sprite file.
         const FEET_MIN_Y_BY_SPRITE = { 'KOT.png': 150 };
@@ -654,6 +658,14 @@
 
             canvas.width = Math.floor(window.innerWidth);
             canvas.height = Math.floor(window.innerHeight);
+
+            // Pin the game to its full-screen pixel size so the keyboard cannot squish it.
+            const box = document.getElementById('gameContainer');
+            box.style.position = 'fixed';
+            box.style.top = '0';
+            box.style.left = '0';
+            box.style.width = canvas.width + 'px';
+            box.style.height = canvas.height + 'px';
 
             ctx.imageSmoothingEnabled = false;
 
