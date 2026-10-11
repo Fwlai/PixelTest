@@ -39,6 +39,14 @@ function cleanName(value) {
   return value.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 32);
 }
 
+function cleanChat(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
 function cleanUsername(value) {
   if (typeof value !== 'string') {
     return '';
@@ -223,6 +231,21 @@ function start(port, options = {}) {
       });
 
       broadcast({ type: 'joined', player: publicPlayer(player) }, ws);
+      return;
+    }
+
+    if (msg.type === 'chat') {
+      const id = sockets.get(ws);
+      const player = id && players.get(id);
+      const text = cleanChat(msg.text);
+      const now = Date.now();
+
+      if (!player || !text || now - (player.lastChat || 0) < 700) {
+        return;
+      }
+
+      player.lastChat = now;
+      broadcast({ type: 'chat', id: player.id, text });
       return;
     }
 
