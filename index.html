@@ -426,6 +426,13 @@
 
         const STATE_SEND_INTERVAL_MS = 66;
 
+        // Short sprites can walk further back: lowest allowed feet Y per sprite file.
+        const FEET_MIN_Y_BY_SPRITE = { 'KOT.png': 120 };
+
+        function minYFor(file) {
+            return (FEET_MIN_Y_BY_SPRITE[file] ?? FEET_AREA.minY) - SPRITE_H;
+        }
+
         // Camera: default shows the whole room; the C button toggles a zoomed follow camera.
         const CAM_ZOOM = 2.2;
         let followCam = false;
@@ -634,7 +641,7 @@
 
             if (Number.isFinite(info.x) && Number.isFinite(info.y)) {
                 remote.targetX = clamp(info.x, WALK_BOUNDS.minX, WALK_BOUNDS.maxX);
-                remote.targetY = clamp(info.y, WALK_BOUNDS.minY, WALK_BOUNDS.maxY);
+                remote.targetY = clamp(info.y, minYFor(remote.spriteFile), WALK_BOUNDS.maxY);
 
                 if (isNew) {
                     remote.x = remote.targetX;
@@ -998,7 +1005,7 @@
 
                 const nextY = clamp(
                     player.y + direction.dy * SPEED * dt,
-                    WALK_BOUNDS.minY,
+                    minYFor(player.spriteFile),
                     WALK_BOUNDS.maxY
                 );
 
